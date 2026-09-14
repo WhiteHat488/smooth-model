@@ -443,7 +443,7 @@ import builtins, importlib.util, uvicorn, os, requests
 # ══════════════════════════════════════════════
 # APNI VALUES YAHAN DAALO
 CF_ACCOUNT_ID  = "APNA_CLOUDFLARE_ACCOUNT_ID"   # Dashboard se lo
-CF_WORKER_NAME = "kaggle-ai-proxy"               # Worker ka naam
+CF_WORKER_NAME = "kaggle-proxy"               # Worker ka naam
 CF_API_TOKEN   = "APNA_CF_API_TOKEN"             # Edit Workers permission wala
 # ══════════════════════════════════════════════
 
@@ -541,12 +541,12 @@ if cloudflare_url:
 
     if success:
         print(f"\nBOLT.DIY SETTINGS (PERMANENT — KABHI NAHI BADLEGA):")
-        print(f"    Base URL : https://{CF_WORKER_NAME}.myfaltuhere786.workers.dev/v1")
+        print(f"    Base URL : https://{CF_WORKER_NAME}.amandeep10550.workers.dev/v1")
         print(f"    API Key  : sk-no-key")
         print(f"    Model    : qwen3.6-35b-aggressive")
     else:
         print(f"\nManual Worker update:")
-        print(f"    Dashboard → kaggle-ai-proxy → Settings → Variables")
+        print(f"    Dashboard → kaggle-proxy → Settings → Variables")
         print(f"    KAGGLE_TUNNEL_URL = {cloudflare_url}")
 else:
     print("URL nahi mila — CF logs check karo!")
@@ -600,7 +600,7 @@ STEP 2.1: Worker Banao
 -----------------------
 1. https://dash.cloudflare.com login karo
 2. Workers & Pages → Create → Create Worker
-3. Name: kaggle-ai-proxy
+3. Name: kaggle-proxy
 4. Neeche diya Worker code paste karo
 5. Save and Deploy
 
@@ -927,7 +927,7 @@ Kaggle:
 [ ] CF_ACCOUNT_ID aur CF_API_TOKEN Cell 7 mein dala
 
 Cloudflare Worker:
-[ ] kaggle-ai-proxy Worker banaya
+[ ] kaggle-proxy Worker banaya
 [ ] Worker code deploy hua
 [ ] API Token banaya (Edit Workers permission)
 [ ] Worker URL note kiya: https://kaggle-proxy.amandeep10550.workers.dev
