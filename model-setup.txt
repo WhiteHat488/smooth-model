@@ -1,0 +1,980 @@
+meri fork github - https://github.com/CodeEmpireHub/bolt.diy
+
+================================================================
+BOLT.DIY + KAGGLE + CLOUDFLARE PERMANENT SETUP GUIDE
+Agent ke liye complete instructions
+================================================================
+
+OVERVIEW:
+---------
+Hum ek permanent system banana chahte hain jahan:
+1. Kaggle pe GPU se AI model (GGUF) chale
+2. Cloudflare Worker permanent relay ka kaam kare
+3. bolt.diy se user chat kare
+4. Kaggle restart pe sirf 1 API call se URL auto-update ho
+
+FLOW:
+-----
+User (bolt.diy) → Cloudflare Worker (permanent URL) → Kaggle Tunnel (dynamic URL) → AI Model
+
+================================================================
+PART 1: KAGGLE NOTEBOOK — COMPLETE SETUP
+================================================================
+
+STEP 1.1: Kaggle Notebook Settings
+-----------------------------------
+- New Notebook banao
+- Accelerator: GPU T4 x2
+- Internet: ON
+- Session type: 9 hours
+
+----------------------------------------------------------------
+KAGGLE CELL 1: SYSTEM CHECK
+----------------------------------------------------------------
+
+# ============================================
+# CELL 1: SYSTEM CHECK
+# ============================================
+import os
+import subprocess
+import sys
+
+print("=" * 60)
+print("  SYSTEM CHECK")
+print("=" * 60)
+
+try:
+    gpu = subprocess.run(
+        ["nvidia-smi", "--query-gpu=name,memory.total,memory.free",
+         "--format=csv,noheader"],
+        capture_output=True, text=True, timeout=10
+    )
+    print(f"\nGPU Info:\n   {gpu.stdout.strip()}")
+except Exception as e:
+    print(f"\nGPU Info: Error - {e}")
+
+try:
+    ram = subprocess.run(["free", "-h"], capture_output=True, text=True)
+    print(f"\nRAM Info:\n{ram.stdout}")
+except:
+    print("\nRAM: free command failed")
+
+try:
+    disk = subprocess.run(["df", "-h", "/kaggle"], capture_output=True, text=True)
+    print(f"Disk (/kaggle):\n{disk.stdout}")
+except:
+    pass
+
+print(f"\nPython: {sys.version}")
+print("=" * 60)
+print("System check complete!")
+print("=" * 60)
+
+----------------------------------------------------------------
+KAGGLE CELL 2: INSTALL DEPENDENCIES
+----------------------------------------------------------------
+
+# ============================================
+# CELL 2: INSTALL DEPENDENCIES
+# ============================================
+import os
+
+print("Installing dependencies...")
+print("=" * 60)
+
+os.system("pip install -q --upgrade pip")
+os.system("pip install -q huggingface_hub fastapi uvicorn pydantic httpx requests")
+
+print("\nInstalling llama-cpp-python with CUDA support...")
+os.system("""
+CMAKE_ARGS="-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=75 -DGGML_CUDA_F16=ON" \
+FORCE_CMAKE=1 \
+pip install llama-cpp-python \
+    --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 \
+    --force-reinstall --no-cache-dir -q
+""")
+
+try:
+    from llama_cpp import Llama
+    print("llama-cpp-python imported successfully")
+except Exception as e:
+    print(f"llama-cpp import failed: {e}")
+
+print("\nInstalling Cloudflare tunnel...")
+os.system("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /kaggle/working/cloudflared")
+os.system("chmod +x /kaggle/working/cloudflared")
+print("cloudflared ready")
+
+print("\nAll dependencies installed!")
+
+----------------------------------------------------------------
+KAGGLE CELL 3: DOWNLOAD MODEL
+----------------------------------------------------------------
+
+# ============================================
+# CELL 3: DOWNLOAD MODEL (~21 GB, 15-40 min)
+# ============================================
+from huggingface_hub import hf_hub_download
+import os
+
+SAVE_PATH  = "/kaggle/tmp/models"
+FILE_NAME  = "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+FINAL_PATH = os.path.join(SAVE_PATH, FILE_NAME)
+REPO_ID    = "HauhauCS/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive"
+
+os.makedirs(SAVE_PATH, exist_ok=True)
+
+if os.path.exists(FINAL_PATH):
+    size_gb = os.path.getsize(FINAL_PATH) / (1024**3)
+    if 20.0 <= size_gb <= 22.5:
+        print(f"Model already downloaded! Size: {size_gb:.2f} GB")
+        MODEL_PATH = FINAL_PATH
+        print(f"MODEL_PATH = {MODEL_PATH}")
+        # Skip download
+        import sys
+        print("Skipping download — use Cell 4 to verify")
+    else:
+        print(f"Incomplete file ({size_gb:.2f} GB) — deleting...")
+        os.remove(FINAL_PATH)
+else:
+    print(f"Starting fresh download...")
+    print(f"File: {FILE_NAME}")
+    print(f"Saving to: {SAVE_PATH}")
+    print(f"ETA: 15-40 min\n")
+
+    hf_hub_download(
+        repo_id=REPO_ID,
+        filename=FILE_NAME,
+        local_dir=SAVE_PATH,
+        local_dir_use_symlinks=False,
+        force_download=False,
+        resume_download=True,
+    )
+
+if os.path.exists(FINAL_PATH):
+    size_gb = os.path.getsize(FINAL_PATH) / (1024**3)
+    print(f"\nDownload complete! Size: {size_gb:.2f} GB")
+    if 20.0 <= size_gb <= 22.5:
+        print("File complete — ready to load!")
+        MODEL_PATH = FINAL_PATH
+    else:
+        print(f"Size unexpected ({size_gb:.2f} GB). Retry.")
+else:
+    print("Download failed!")
+
+----------------------------------------------------------------
+KAGGLE CELL 4: MODEL FILE VERIFY
+----------------------------------------------------------------
+
+# ============================================
+# CELL 4: VERIFY MODEL FILE
+# ============================================
+import os
+import subprocess
+
+print("=" * 60)
+print("  MODEL FILE CHECK")
+print("=" * 60)
+
+TARGET = "/kaggle/tmp/models/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+
+if os.path.exists(TARGET):
+    size_gb = os.path.getsize(TARGET) / (1024**3)
+    print(f"\nFILE FOUND: {TARGET}")
+    print(f"Size: {size_gb:.2f} GB")
+    if 20.0 <= size_gb <= 22.5:
+        print("COMPLETE — Ready to load!")
+        MODEL_PATH = TARGET
+        print(f"MODEL_PATH = {MODEL_PATH}")
+    else:
+        print(f"INCOMPLETE — Re-run Cell 3")
+else:
+    print(f"\nNOT FOUND: {TARGET}")
+    result = subprocess.run(
+        ["find", "/kaggle", "/tmp", "-name", "*.gguf", "-type", "f"],
+        capture_output=True, text=True
+    )
+    if result.stdout.strip():
+        for line in result.stdout.strip().split("\n"):
+            if line:
+                size_gb = os.path.getsize(line) / (1024**3)
+                print(f"Found: {line} ({size_gb:.2f} GB)")
+    else:
+        print("No .gguf file found — Run Cell 3 first!")
+
+print("=" * 60)
+
+----------------------------------------------------------------
+KAGGLE CELL 5: LOAD MODEL
+----------------------------------------------------------------
+
+# ============================================
+# CELL 5: LOAD MODEL
+# ============================================
+from llama_cpp import Llama
+import os
+import builtins
+
+MODEL_PATH = "/kaggle/tmp/models/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M.gguf"
+
+if not os.path.exists(MODEL_PATH):
+    import subprocess
+    res = subprocess.run(
+        ["find", "/kaggle", "/tmp", "-name", "*Qwen3.6*Q4_K_M*.gguf", "-type", "f"],
+        capture_output=True, text=True
+    )
+    if res.stdout.strip():
+        MODEL_PATH = res.stdout.strip().split("\n")[0]
+        print(f"Found: {MODEL_PATH}")
+    else:
+        raise FileNotFoundError("Model not found! Run Cell 3.")
+
+print(f"Loading model: {MODEL_PATH}")
+print("First load: 1-3 minutes...")
+
+llm = Llama(
+    model_path=MODEL_PATH,
+    n_gpu_layers=-1,
+    n_ctx=8192,
+    n_batch=512,
+    n_threads=8,
+    verbose=False,
+    seed=42,
+    use_mmap=True,
+    use_mlock=False,
+)
+
+builtins.llm = llm
+globals()["llm"] = llm
+
+print("\nModel loaded!")
+print(f"Context: {llm.n_ctx()}")
+
+# Smoke test
+out = llm(
+    "<|im_start|>user\nSay hello in one sentence.<|im_end|>\n<|im_start|>assistant\n",
+    max_tokens=30, temperature=0.7, echo=False
+)
+print("Smoke test:", out["choices"][0]["text"].strip())
+print("Ready for server!")
+
+----------------------------------------------------------------
+KAGGLE CELL 6: CREATE SERVER SCRIPT
+----------------------------------------------------------------
+
+# ============================================
+# CELL 6: FASTAPI SERVER SCRIPT
+# ============================================
+import os
+
+server_code = r'''
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+from typing import List, Optional
+import uvicorn, time, json, asyncio
+
+app = FastAPI(
+    title="Beast AI Server",
+    description="Qwen3.6-35B Aggressive via Kaggle GPU",
+    version="1.0.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class Message(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    model: Optional[str] = "qwen3.6-35b-aggressive"
+    messages: List[Message]
+    max_tokens: Optional[int] = 2048
+    temperature: Optional[float] = 0.7
+    top_p: Optional[float] = 0.9
+    stream: Optional[bool] = False
+    stop: Optional[List[str]] = None
+
+def messages_to_prompt(messages):
+    prompt = ""
+    for msg in messages:
+        role = msg.role if msg.role in ("system", "user", "assistant") else "user"
+        prompt += f"<|im_start|>{role}\n{msg.content}<|im_end|>\n"
+    prompt += "<|im_start|>assistant\n"
+    return prompt
+
+@app.get("/")
+@app.get("/health")
+async def health():
+    return {
+        "status": "alive",
+        "model": "Qwen3.6-35B-A3B-Uncensored-Q4_K_M",
+        "platform": "Kaggle GPU T4"
+    }
+
+@app.get("/v1/models")
+async def list_models():
+    return {
+        "object": "list",
+        "data": [{
+            "id": "qwen3.6-35b-aggressive",
+            "object": "model",
+            "created": int(time.time()),
+            "owned_by": "HauhauCS",
+            "permission": [],
+            "root": "qwen3.6-35b-aggressive"
+        }]
+    }
+
+@app.post("/v1/chat/completions")
+async def chat_completions(request: ChatRequest):
+    try:
+        prompt = messages_to_prompt(request.messages)
+        stop_tokens = request.stop or [
+            "<|im_end|>", "<|im_start|>", "<|endoftext|>"
+        ]
+
+        if request.stream:
+            async def stream_generator():
+                response_id = f"chatcmpl-{int(time.time())}"
+                first = {
+                    "id": response_id, "object": "chat.completion.chunk",
+                    "created": int(time.time()), "model": request.model,
+                    "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}]
+                }
+                yield f"data: {json.dumps(first)}\n\n"
+
+                stream = llm(
+                    prompt,
+                    max_tokens=request.max_tokens or 2048,
+                    temperature=request.temperature or 0.7,
+                    top_p=request.top_p or 0.9,
+                    stop=stop_tokens,
+                    echo=False, stream=True,
+                )
+
+                for chunk in stream:
+                    token = chunk["choices"][0].get("text", "")
+                    if token:
+                        data = {
+                            "id": response_id, "object": "chat.completion.chunk",
+                            "created": int(time.time()), "model": request.model,
+                            "choices": [{"index": 0, "delta": {"content": token}, "finish_reason": None}]
+                        }
+                        yield f"data: {json.dumps(data)}\n\n"
+                        await asyncio.sleep(0)
+
+                final = {
+                    "id": response_id, "object": "chat.completion.chunk",
+                    "created": int(time.time()), "model": request.model,
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+                }
+                yield f"data: {json.dumps(final)}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                stream_generator(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+            )
+
+        output = llm(
+            prompt,
+            max_tokens=request.max_tokens or 2048,
+            temperature=request.temperature or 0.7,
+            top_p=request.top_p or 0.9,
+            stop=stop_tokens,
+            echo=False,
+        )
+
+        response_text = output["choices"][0]["text"].strip()
+        usage = output.get("usage", {})
+
+        return {
+            "id": f"chatcmpl-{int(time.time())}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": request.model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": response_text},
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+                "total_tokens": usage.get("total_tokens", 0)
+            }
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000, workers=1)
+'''
+
+with open("/kaggle/working/server.py", "w") as f:
+    f.write(server_code)
+
+print("Server script saved: /kaggle/working/server.py")
+
+----------------------------------------------------------------
+KAGGLE CELL 7: START SERVER + TUNNEL + AUTO UPDATE WORKER
+----------------------------------------------------------------
+
+# ============================================
+# CELL 7: SERVER + CLOUDFLARE TUNNEL + AUTO UPDATE
+# IMPORTANT: Apna CF_ACCOUNT_ID aur CF_API_TOKEN daalo
+# ============================================
+
+import subprocess, threading, time, re, sys
+import builtins, importlib.util, uvicorn, os, requests
+
+# ══════════════════════════════════════════════
+# APNI VALUES YAHAN DAALO
+CF_ACCOUNT_ID  = "APNA_CLOUDFLARE_ACCOUNT_ID"   # Dashboard se lo
+CF_WORKER_NAME = "kaggle-ai-proxy"               # Worker ka naam
+CF_API_TOKEN   = "APNA_CF_API_TOKEN"             # Edit Workers permission wala
+# ══════════════════════════════════════════════
+
+if not hasattr(builtins, "llm") or builtins.llm is None:
+    raise RuntimeError("llm not loaded! Run Cell 5 first.")
+
+sys.path.insert(0, "/kaggle/working")
+
+spec = importlib.util.spec_from_file_location("server", "/kaggle/working/server.py")
+server_module = importlib.util.module_from_spec(spec)
+server_module.llm = builtins.llm
+sys.modules["server"] = server_module
+spec.loader.exec_module(server_module)
+
+def run_server():
+    uvicorn.run(
+        server_module.app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="warning",
+        access_log=False
+    )
+
+server_thread = threading.Thread(target=run_server, daemon=True)
+server_thread.start()
+print("FastAPI server starting on port 8000...")
+time.sleep(5)
+
+try:
+    r = requests.get("http://127.0.0.1:8000/health", timeout=5)
+    print(f"Local health: {r.status_code} — {r.json()['status']}")
+except Exception as e:
+    print(f"Local check: {e}")
+
+print("\nStarting Cloudflare tunnel...")
+cf_bin = "/kaggle/working/cloudflared"
+
+cf_process = subprocess.Popen(
+    [cf_bin, "tunnel", "--url", "http://localhost:8000", "--no-autoupdate"],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True, bufsize=1
+)
+
+cloudflare_url = None
+print("Waiting for URL (10-30 sec)...")
+
+for i, line in enumerate(cf_process.stdout):
+    if "trycloudflare.com" in line:
+        urls = re.findall(r'https://[a-zA-Z0-9\-]+\.trycloudflare\.com', line)
+        if urls:
+            cloudflare_url = urls[0]
+            break
+    if i > 80:
+        break
+
+def update_cloudflare_worker(tunnel_url: str):
+    """Cloudflare Worker ka KAGGLE_TUNNEL_URL auto update karo"""
+    url = (
+        f"https://api.cloudflare.com/client/v4/accounts/"
+        f"{CF_ACCOUNT_ID}/workers/scripts/{CF_WORKER_NAME}/secrets"
+    )
+    payload = {
+        "name": "KAGGLE_TUNNEL_URL",
+        "text": tunnel_url,
+        "type": "secret_text"
+    }
+    headers = {
+        "Authorization": f"Bearer {CF_API_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    try:
+        r = requests.put(url, json=payload, headers=headers, timeout=15)
+        if r.status_code in [200, 201]:
+            print(f"Worker URL updated: {tunnel_url}")
+            return True
+        else:
+            print(f"Worker update failed: {r.status_code}")
+            print(f"Manual update karo Dashboard pe!")
+            return False
+    except Exception as e:
+        print(f"Auto-update error: {e}")
+        print(f"Manual update karo: {tunnel_url}")
+        return False
+
+print()
+print("=" * 70)
+print("  BEAST AI SERVER — LIVE!")
+print("=" * 70)
+
+if cloudflare_url:
+    print(f"\nKaggle Tunnel URL:\n    {cloudflare_url}")
+    print(f"\nAuto-updating Cloudflare Worker...")
+    success = update_cloudflare_worker(cloudflare_url)
+
+    if success:
+        print(f"\nBOLT.DIY SETTINGS (PERMANENT — KABHI NAHI BADLEGA):")
+        print(f"    Base URL : https://{CF_WORKER_NAME}.myfaltuhere786.workers.dev/v1")
+        print(f"    API Key  : sk-no-key")
+        print(f"    Model    : qwen3.6-35b-aggressive")
+    else:
+        print(f"\nManual Worker update:")
+        print(f"    Dashboard → kaggle-ai-proxy → Settings → Variables")
+        print(f"    KAGGLE_TUNNEL_URL = {cloudflare_url}")
+else:
+    print("URL nahi mila — CF logs check karo!")
+
+print()
+print("=" * 70)
+print(f"    GET  /health")
+print(f"    GET  /v1/models")
+print(f"    POST /v1/chat/completions")
+print("=" * 70)
+print()
+print("Keep-alive started (4-8 hours session)")
+print("Is cell ko band mat karna!")
+print()
+
+start = time.time()
+session_hours = 8
+check_interval = 180
+heartbeat = 0
+
+while True:
+    time.sleep(check_interval)
+    heartbeat += 1
+    elapsed   = (time.time() - start) / 3600
+    remaining = session_hours - elapsed
+    alive     = server_thread.is_alive()
+
+    print(
+        f"[{heartbeat}] "
+        f"Elapsed: {elapsed:.1f}h | "
+        f"Remaining: {remaining:.1f}h | "
+        f"Server: {'OK' if alive else 'DEAD'}"
+    )
+
+    if remaining <= 0:
+        print("Time limit reached. Restart notebook.")
+        break
+
+    if not alive:
+        print("Server crash — restarting...")
+        server_thread = threading.Thread(target=run_server, daemon=True)
+        server_thread.start()
+        time.sleep(4)
+        print("Server restarted!")
+
+================================================================
+PART 2: CLOUDFLARE WORKER SETUP
+================================================================
+
+STEP 2.1: Worker Banao
+-----------------------
+1. https://dash.cloudflare.com login karo
+2. Workers & Pages → Create → Create Worker
+3. Name: kaggle-ai-proxy
+4. Neeche diya Worker code paste karo
+5. Save and Deploy
+
+----------------------------------------------------------------
+CLOUDFLARE WORKER CODE (poora replace karo)
+----------------------------------------------------------------
+
+export default {
+  async fetch(request, env, ctx) {
+
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin' : '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-api-key',
+          'Access-Control-Max-Age'      : '86400',
+        },
+      });
+    }
+
+    const KAGGLE_URL = (env.KAGGLE_TUNNEL_URL || '').replace(/\/$/, '');
+
+    if (!KAGGLE_URL) {
+      return new Response(
+        JSON.stringify({
+          error: 'KAGGLE_TUNNEL_URL not configured',
+          hint : 'Kaggle Cell 7 chalao — auto update hoga'
+        }),
+        {
+          status : 503,
+          headers: {
+            'Content-Type'               : 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        }
+      );
+    }
+
+    const originalUrl = new URL(request.url);
+    const targetUrl   = KAGGLE_URL + originalUrl.pathname + originalUrl.search;
+
+    const newHeaders = new Headers(request.headers);
+    newHeaders.set('Host', new URL(KAGGLE_URL).host);
+
+    try {
+      const newRequest = new Request(targetUrl, {
+        method  : request.method,
+        headers : newHeaders,
+        body    : ['GET', 'HEAD'].includes(request.method) ? null : request.body,
+        redirect: 'follow',
+      });
+
+      const response        = await fetch(newRequest);
+      const responseHeaders = new Headers(response.headers);
+      responseHeaders.set('Access-Control-Allow-Origin' , '*');
+      responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+      return new Response(response.body, {
+        status    : response.status,
+        statusText: response.statusText,
+        headers   : responseHeaders,
+      });
+
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error : 'Kaggle tunnel unreachable',
+          detail: error.message,
+          hint  : 'Kaggle Cell 7 chal raha hai? Naya URL auto-update hua?'
+        }),
+        {
+          status : 502,
+          headers: {
+            'Content-Type'               : 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          },
+        }
+      );
+    }
+  }
+};
+
+----------------------------------------------------------------
+STEP 2.2: Cloudflare API Token Banao
+----------------------------------------------------------------
+1. dash.cloudflare.com → My Profile (top right) → API Tokens
+2. Create Token → Custom Token
+3. Name: kaggle-worker-updater
+4. Permissions:
+   Account → Workers Scripts → Edit
+5. Create → Token copy karo
+6. Kaggle Cell 7 mein CF_API_TOKEN mein paste karo
+
+STEP 2.3: Account ID Kahan Milega
+----------------------------------
+1. dash.cloudflare.com
+2. Workers & Pages → Overview
+3. Right sidebar mein "Account ID" dikhega
+4. Copy karo → Kaggle Cell 7 mein CF_ACCOUNT_ID mein paste karo
+
+STEP 2.4: Worker URL Note Karo
+--------------------------------
+Deploy hone ke baad Worker URL milega:
+    https://kaggle-ai-proxy.myfaltuhere786.workers.dev
+
+Yeh PERMANENT URL hai — kabhi nahi badlega.
+
+================================================================
+PART 3: BOLT.DIY FILES UPDATE (GitHub Fork)
+================================================================
+
+IMPORTANT: Pehle apna Worker URL confirm karo:
+    https://kaggle-ai-proxy.myfaltuhere786.workers.dev
+    (YOUR-USERNAME = tumhara Cloudflare username)
+
+----------------------------------------------------------------
+FILE 1: .env.example (root mein)
+----------------------------------------------------------------
+Existing content ke neeche add karo:
+
+# ============================================
+# OpenAI Like Provider — Cloudflare Worker
+# PERMANENT URL — Kaggle restart pe nahi badlega
+# ============================================
+OPENAI_LIKE_API_BASE_URL=https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
+OPENAI_LIKE_API_KEY=sk-no-key
+OPENAI_LIKE_API_MODELS=qwen3.6-35b-aggressive:8192
+
+VITE_OPENAI_LIKE_API_BASE_URL=https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
+VITE_OPENAI_LIKE_API_KEY=sk-no-key
+VITE_OPENAI_LIKE_API_MODELS=qwen3.6-35b-aggressive:8192
+
+----------------------------------------------------------------
+FILE 2: wrangler.toml (root mein)
+----------------------------------------------------------------
+[vars] section mein add karo (agar nahi hai to banao):
+
+[vars]
+OPENAI_LIKE_API_BASE_URL = "https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1"
+OPENAI_LIKE_API_KEY = "sk-no-key"
+OPENAI_LIKE_API_MODELS = "qwen3.6-35b-aggressive:8192"
+
+----------------------------------------------------------------
+FILE 3: app/lib/modules/llm/providers/openai-like.ts (REPLACE)
+----------------------------------------------------------------
+Poori file ka content replace karo:
+
+import { BaseProvider, getOpenAILikeModel } from '~/lib/modules/llm/base-provider';
+import type { ModelInfo } from '~/lib/modules/llm/types';
+import type { IProviderSetting } from '~/types/model';
+
+export default class OpenAILikeProvider extends BaseProvider {
+  name = 'OpenAILike';
+  getApiKeyLink = undefined;
+
+  config = {
+    baseUrlKey: 'OPENAI_LIKE_API_BASE_URL',
+    apiTokenKey: 'OPENAI_LIKE_API_KEY',
+  };
+
+  staticModels: ModelInfo[] = [
+    {
+      name: 'qwen3.6-35b-aggressive',
+      label: 'Qwen3.6-35B Aggressive (Kaggle GPU)',
+      provider: 'OpenAILike',
+      maxTokenAllowed: 8192,
+    },
+  ];
+
+  async getDynamicModels(
+    apiKeys?: Record<string, string>,
+    settings?: IProviderSetting,
+    serverEnv?: Record<string, string>,
+  ): Promise<ModelInfo[]> {
+    try {
+      const baseUrl =
+        serverEnv?.OPENAI_LIKE_API_BASE_URL ||
+        settings?.baseUrl ||
+        apiKeys?.OPENAI_LIKE_API_BASE_URL ||
+        '';
+
+      const apiKey =
+        serverEnv?.OPENAI_LIKE_API_KEY ||
+        apiKeys?.OpenAILike ||
+        apiKeys?.OPENAI_LIKE_API_KEY ||
+        'sk-no-key';
+
+      if (!baseUrl) {
+        console.warn('OpenAILike: No baseUrl — returning static models');
+        return this.staticModels;
+      }
+
+      const response = await fetch(`${baseUrl}/models`, {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        console.warn(`OpenAILike: /models ${response.status} — using static`);
+        return this.staticModels;
+      }
+
+      const data = (await response.json()) as { data: Array<{ id: string }> };
+
+      const dynamicModels = data.data.map((model) => ({
+        name: model.id,
+        label: model.id,
+        provider: 'OpenAILike',
+        maxTokenAllowed: 8192,
+      }));
+
+      return dynamicModels.length > 0 ? dynamicModels : this.staticModels;
+
+    } catch (error) {
+      console.warn('OpenAILike: getDynamicModels error — using static:', error);
+      return this.staticModels;
+    }
+  }
+
+  getModelInstance(options: {
+    model: string;
+    serverEnv: Record<string, string>;
+    apiKeys?: Record<string, string>;
+    providerSettings?: Record<string, IProviderSetting>;
+  }) {
+    const { model, serverEnv, apiKeys, providerSettings } = options;
+
+    const baseUrl =
+      serverEnv?.OPENAI_LIKE_API_BASE_URL ||
+      providerSettings?.OpenAILike?.baseUrl ||
+      apiKeys?.OPENAI_LIKE_API_BASE_URL ||
+      '';
+
+    const apiKey =
+      serverEnv?.OPENAI_LIKE_API_KEY ||
+      apiKeys?.OpenAILike ||
+      'sk-no-key';
+
+    if (!baseUrl) {
+      throw new Error('OpenAILike: OPENAI_LIKE_API_BASE_URL missing!');
+    }
+
+    return getOpenAILikeModel(baseUrl, apiKey, model);
+  }
+}
+
+================================================================
+PART 4: CLOUDFLARE PAGES — ENVIRONMENT VARIABLES
+================================================================
+
+Cloudflare Dashboard → Workers & Pages → [bolt.diy project]
+→ Settings → Environment Variables → Add:
+
+Production aur Preview DONO mein yeh variables daalo:
+
+Variable Name                  | Value
+-------------------------------|------------------------------------------------
+OPENAI_LIKE_API_BASE_URL       | https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
+OPENAI_LIKE_API_KEY            | sk-no-key
+OPENAI_LIKE_API_MODELS         | qwen3.6-35b-aggressive:8192
+VITE_OPENAI_LIKE_API_BASE_URL  | https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
+VITE_OPENAI_LIKE_API_KEY       | sk-no-key
+VITE_OPENAI_LIKE_API_MODELS    | qwen3.6-35b-aggressive:8192
+
+Save karo → Redeploy karo.
+
+================================================================
+PART 5: GITHUB → DEPLOY
+================================================================
+
+Files commit karne ke baad:
+
+1. GitHub mein files commit karo
+2. Cloudflare Pages auto-detect karega aur build shuru karega
+3. Build command (agar pucha jaye):
+   npm install -g pnpm && pnpm install && pnpm run build
+4. Output directory: build/client
+5. Build complete → site live
+
+================================================================
+PART 6: BOLT.DIY UI SETTINGS (Final step)
+================================================================
+
+1. Apni bolt.diy site kholo
+2. Settings → Local AI Providers
+3. OpenAILike → Enable (toggle ON)
+4. API Endpoint:
+   https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
+5. API Key: sk-no-key
+6. Save karo
+7. Provider switch trick:
+   Koi dusra provider select karo → phir OpenAILike
+8. Model dikhe: qwen3.6-35b-aggressive ✅
+
+================================================================
+PART 7: KAGGLE RESTART KE BAAD KYA KARNA HAI
+================================================================
+
+Sirf yeh 3 cells chalao:
+
+Cell 2: Install dependencies  (agar fresh session ho)
+Cell 5: Load model            (2-3 min, model cache mein hai)
+Cell 7: Server + Tunnel       (auto Worker update hoga)
+
+Koi manual URL update nahi ✅
+bolt.diy mein koi change nahi ✅
+Model dobara download nahi ✅ (cache mein hai)
+
+================================================================
+CHECKLIST — SAB HONE KE BAAD
+================================================================
+
+Kaggle:
+[ ] GPU T4 x2 enabled
+[ ] Internet ON
+[ ] Model downloaded (21 GB, /kaggle/tmp/models/)
+[ ] Cell 5 (model load) success
+[ ] Cell 7 (server + tunnel) chal raha hai
+[ ] CF_ACCOUNT_ID aur CF_API_TOKEN Cell 7 mein dala
+
+Cloudflare Worker:
+[ ] kaggle-ai-proxy Worker banaya
+[ ] Worker code deploy hua
+[ ] API Token banaya (Edit Workers permission)
+[ ] Worker URL note kiya: https://kaggle-ai-proxy.myfaltuhere786.workers.dev
+
+bolt.diy GitHub Fork:
+[ ] .env.example updated (Worker URL)
+[ ] wrangler.toml updated (Worker URL)
+[ ] openai-like.ts replaced (staticModels + fallbacks)
+[ ] Commit + Push kiya
+
+Cloudflare Pages (bolt.diy):
+[ ] 6 environment variables add kiye
+[ ] Redeploy hua
+
+bolt.diy UI:
+[ ] OpenAILike enabled
+[ ] Endpoint: Worker URL + /v1
+[ ] API Key: sk-no-key
+[ ] Model dikh raha hai: qwen3.6-35b-aggressive
+[ ] Chat test successful
+
+================================================================
+TROUBLESHOOTING
+================================================================
+
+Problem: Model nahi dikh raha
+Fix: Provider switch karo (Ollama → OpenAILike) + hard refresh
+
+Problem: 502 Bad Gateway Worker se
+Fix: Kaggle Cell 7 chal raha hai? Tunnel alive hai?
+
+Problem: Worker update fail (403)
+Fix: API Token mein "Workers Scripts Edit" permission check karo
+
+Problem: OOM (Out of Memory) model load pe
+Fix: Cell 5 mein n_gpu_layers=25 karo (instead of -1)
+     aur n_ctx=4096 karo
+
+Problem: Model slow hai
+Fix: Normal hai — first token 10-30 sec lag sakta hai
+     MoE architecture hai, warm up hota hai
+
+Problem: Cloudflare Pages build fail
+Fix: Build command check karo:
+     npm install -g pnpm && pnpm install && pnpm run build
+     Output dir: build/client
+
+================================================================
+END OF GUIDE
+================================================================

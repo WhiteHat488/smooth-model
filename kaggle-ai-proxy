@@ -1,0 +1,87 @@
+// ============================================
+// Cloudflare Worker — Kaggle AI Proxy
+// Permanent relay — Kaggle URL change hone pe
+// sirf KAGGLE_TUNNEL_URL env var update karo
+// ============================================
+
+export default {
+  async fetch(request, env, ctx) {
+
+    // ── CORS Preflight ──
+    if (request.method === 'OPTIONS') {
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin'  : '*',
+          'Access-Control-Allow-Methods' : 'GET, POST, PUT, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers' : 'Content-Type, Authorization, x-api-key',
+          'Access-Control-Max-Age'       : '86400',
+        },
+      });
+    }
+
+    // ── Kaggle tunnel URL (env var se) ──
+    const KAGGLE_URL = (env.KAGGLE_TUNNEL_URL || '').replace(/\/$/, '');
+
+    if (!KAGGLE_URL) {
+      return new Response(
+        JSON.stringify({ error: 'KAGGLE_TUNNEL_URL not set in Worker env vars' }),
+        {
+          status: 503,
+          headers: {
+            'Content-Type'                : 'application/json',
+            'Access-Control-Allow-Origin' : '*',
+          },
+        }
+      );
+    }
+
+    // ── URL construct karo ──
+    const originalUrl = new URL(request.url);
+    const targetUrl   = KAGGLE_URL + originalUrl.pathname + originalUrl.search;
+
+    // ── Headers forward karo ──
+    const newHeaders = new Headers(request.headers);
+    newHeaders.set('Host', new URL(KAGGLE_URL).host);
+
+    // ── Request forward karo ──
+    try {
+      const newRequest = new Request(targetUrl, {
+        method  : request.method,
+        headers : newHeaders,
+        body    : ['GET', 'HEAD'].includes(request.method) ? null : request.body,
+        redirect: 'follow',
+      });
+
+      const response = await fetch(newRequest);
+
+      // ── Response headers mein CORS add karo ──
+      const responseHeaders = new Headers(response.headers);
+      responseHeaders.set('Access-Control-Allow-Origin' , '*');
+      responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+      return new Response(response.body, {
+        status     : response.status,
+        statusText : response.statusText,
+        headers    : responseHeaders,
+      });
+
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error  : 'Kaggle tunnel unreachable',
+          detail : error.message,
+          hint   : 'Kaggle Cell 7 chal raha hai? Tunnel alive hai?'
+        }),
+        {
+          status : 502,
+          headers: {
+            'Content-Type'                : 'application/json',
+            'Access-Control-Allow-Origin' : '*',
+          },
+        }
+      );
+    }
+  }
+};
