@@ -443,7 +443,7 @@ import builtins, importlib.util, uvicorn, os, requests
 # ══════════════════════════════════════════════
 # APNI VALUES YAHAN DAALO
 CF_ACCOUNT_ID  = "APNA_CLOUDFLARE_ACCOUNT_ID"   # Dashboard se lo
-CF_WORKER_NAME = "kaggle-proxy"               # Worker ka naam
+CF_WORKER_NAME = "kaggle-ai-proxy"               # Worker ka naam
 CF_API_TOKEN   = "APNA_CF_API_TOKEN"             # Edit Workers permission wala
 # ══════════════════════════════════════════════
 
@@ -541,7 +541,7 @@ if cloudflare_url:
 
     if success:
         print(f"\nBOLT.DIY SETTINGS (PERMANENT — KABHI NAHI BADLEGA):")
-        print(f"    Base URL : https://{CF_WORKER_NAME}.amandeep10550.workers.dev/v1")
+        print(f"    Base URL : https://{CF_WORKER_NAME}.myfaltuhere786.workers.dev/v1")
         print(f"    API Key  : sk-no-key")
         print(f"    Model    : qwen3.6-35b-aggressive")
     else:
@@ -707,7 +707,7 @@ STEP 2.3: Account ID Kahan Milega
 STEP 2.4: Worker URL Note Karo
 --------------------------------
 Deploy hone ke baad Worker URL milega:
-    https://kaggle-proxy.amandeep10550.workers.dev
+    https://kaggle-ai-proxy.myfaltuhere786.workers.dev
 
 Yeh PERMANENT URL hai — kabhi nahi badlega.
 
@@ -716,7 +716,7 @@ PART 3: BOLT.DIY FILES UPDATE (GitHub Fork)
 ================================================================
 
 IMPORTANT: Pehle apna Worker URL confirm karo:
-    https://kaggle-proxy.amandeep10550.workers.dev
+    https://kaggle-ai-proxy.myfaltuhere786.workers.dev
     (YOUR-USERNAME = tumhara Cloudflare username)
 
 ----------------------------------------------------------------
@@ -728,11 +728,11 @@ Existing content ke neeche add karo:
 # OpenAI Like Provider — Cloudflare Worker
 # PERMANENT URL — Kaggle restart pe nahi badlega
 # ============================================
-OPENAI_LIKE_API_BASE_URL=https://kaggle-proxy.amandeep10550.workers.dev/v1
+OPENAI_LIKE_API_BASE_URL=https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
 OPENAI_LIKE_API_KEY=sk-no-key
 OPENAI_LIKE_API_MODELS=qwen3.6-35b-aggressive:8192
 
-VITE_OPENAI_LIKE_API_BASE_URL=https://kaggle-proxy.amandeep10550.workers.dev/v1
+VITE_OPENAI_LIKE_API_BASE_URL=https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
 VITE_OPENAI_LIKE_API_KEY=sk-no-key
 VITE_OPENAI_LIKE_API_MODELS=qwen3.6-35b-aggressive:8192
 
@@ -742,7 +742,7 @@ FILE 2: wrangler.toml (root mein)
 [vars] section mein add karo (agar nahi hai to banao):
 
 [vars]
-OPENAI_LIKE_API_BASE_URL = "https://kaggle-proxy.amandeep10550.workers.dev/v1"
+OPENAI_LIKE_API_BASE_URL = "https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1"
 OPENAI_LIKE_API_KEY = "sk-no-key"
 OPENAI_LIKE_API_MODELS = "qwen3.6-35b-aggressive:8192"
 
@@ -863,10 +863,10 @@ Production aur Preview DONO mein yeh variables daalo:
 
 Variable Name                  | Value
 -------------------------------|------------------------------------------------
-OPENAI_LIKE_API_BASE_URL       | https://kaggle-proxy.amandeep10550.workers.dev/v1
+OPENAI_LIKE_API_BASE_URL       | https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
 OPENAI_LIKE_API_KEY            | sk-no-key
 OPENAI_LIKE_API_MODELS         | qwen3.6-35b-aggressive:8192
-VITE_OPENAI_LIKE_API_BASE_URL  | https://kaggle-proxy.amandeep10550.workers.dev/v1
+VITE_OPENAI_LIKE_API_BASE_URL  | https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
 VITE_OPENAI_LIKE_API_KEY       | sk-no-key
 VITE_OPENAI_LIKE_API_MODELS    | qwen3.6-35b-aggressive:8192
 
@@ -893,7 +893,7 @@ PART 6: BOLT.DIY UI SETTINGS (Final step)
 2. Settings → Local AI Providers
 3. OpenAILike → Enable (toggle ON)
 4. API Endpoint:
-   https://kaggle-proxy.amandeep10550.workers.dev/v1
+   https://kaggle-ai-proxy.myfaltuhere786.workers.dev/v1
 5. API Key: sk-no-key
 6. Save karo
 7. Provider switch trick:
@@ -930,7 +930,7 @@ Cloudflare Worker:
 [ ] kaggle-proxy Worker banaya
 [ ] Worker code deploy hua
 [ ] API Token banaya (Edit Workers permission)
-[ ] Worker URL note kiya: https://kaggle-proxy.amandeep10550.workers.dev
+[ ] Worker URL note kiya: https://kaggle-ai-proxy.myfaltuhere786.workers.dev
 
 bolt.diy GitHub Fork:
 [ ] .env.example updated (Worker URL)
